@@ -16,6 +16,14 @@ export interface Changes {
     typeContent: string;
 }
 
+/**
+ * Represents an edit operation to be applied to a document
+ */
+interface ImportEdit {
+    range: vscode.Range;
+    newText: string;
+}
+
 export class ImportManager {
     private pathResolver: PathResolver;
 
@@ -107,115 +115,186 @@ export class ImportManager {
         return changes;
     }
 
+    /**
+     * Updates import statements in TypeScript files based on provided changes
+     * @param changes - The changes to apply to imports
+     */
     public async updateImports(changes: Changes): Promise<void> {
         for (const change of changes.importChanges) {
             const document = await vscode.workspace.openTextDocument(change.uri);
-            const text = document.getText();
-            const sourceFile = ts.createSourceFile(
-                document.fileName,
-                text,
-                ts.ScriptTarget.Latest,
-                true
-            );
-
-            // First collect all the edits we need to make
-            const editsToApply: { range: vscode.Range; newText: string }[] = [];
-            let hasExistingImport = false;
-            let lastImportPos = 0;
-
-            ts.forEachChild(sourceFile, node => {
-                if (ts.isImportDeclaration(node)) {
-                    lastImportPos = node.getEnd();
-                    const importPath = (node.moduleSpecifier as ts.StringLiteral).text;
-                    
-                    if (importPath === change.oldImportPath) {
-                        // Remove the old import if it only contains our type
-                        const importClause = node.importClause;
-                        if (importClause && importClause.namedBindings) {
-                            const namedBindings = importClause.namedBindings;
-                            if (ts.isNamedImports(namedBindings)) {
-                                const elements = namedBindings.elements;
-                                if (elements.length === 1 && elements[0].name.text === change.typeName) {
-                                    // If this is the only type in the import, remove the entire import
-                                    editsToApply.push({
-                                        range: new vscode.Range(
-                                            document.positionAt(node.getStart()),
-                                            document.positionAt(node.getEnd())
-                                        ),
-                                        newText: ''
-                                    });
-                                } else if (elements.some(el => el.name.text === change.typeName)) {
-                                    // If there are multiple types, only remove the specific type
-                                    const remainingTypes = elements
-                                        .filter(el => el.name.text !== change.typeName)
-                                        .map(el => el.name.text)
-                                        .join(', ');
-                                    
-                                    const typeKeyword = node.importClause?.isTypeOnly ? 'type ' : '';
-                                    const newImport = `import ${typeKeyword}{ ${remainingTypes} } from '${importPath}';`;
-                                    
-                                    editsToApply.push({
-                                        range: new vscode.Range(
-                                            document.positionAt(node.getStart()),
-                                            document.positionAt(node.getEnd())
-                                        ),
-                                        newText: newImport
-                                    });
-                                }
-                            }
-                        }
-                    } else if (importPath === change.newImportPath) {
-                        hasExistingImport = true;
-                        // Update existing import to include our type if it's not already there
-                        const importClause = node.importClause;
-                        if (importClause && importClause.namedBindings && ts.isNamedImports(importClause.namedBindings)) {
-                            const elements = importClause.namedBindings.elements;
-                            if (!elements.some(el => el.name.text === change.typeName)) {
-                                const existingTypes = elements.map(el => el.name.text);
-                                existingTypes.push(change.typeName);
-                                const sortedTypes = existingTypes.sort().join(', ');
-                                const typeKeyword = importClause.isTypeOnly ? 'type ' : '';
-                                const newImport = `import ${typeKeyword}{ ${sortedTypes} } from '${importPath}';`;
-                                
-                                editsToApply.push({
-                                    range: new vscode.Range(
-                                        document.positionAt(node.getStart()),
-                                        document.positionAt(node.getEnd())
-                                    ),
-                                    newText: newImport
-                                });
-                            }
-                        }
-                    }
-                }
-            });
-
-            // Add new import if it doesn't exist
-            if (!hasExistingImport) {
-                const importStatement = change.isTypeOnly
-                    ? `import type { ${change.typeName} } from '${change.newImportPath}';\n`
-                    : `import { ${change.typeName} } from '${change.newImportPath}';\n`;
-
-                editsToApply.push({
-                    range: new vscode.Range(
-                        document.positionAt(lastImportPos).line + 1,
-                        0,
-                        document.positionAt(lastImportPos).line + 1,
-                        0
-                    ),
-                    newText: importStatement
-                });
-            }
-
-            // Sort edits from last to first to avoid position shifting
-            editsToApply.sort((a, b) => b.range.start.line - a.range.start.line);
-
-            // Apply all edits in a single edit operation
-            const edit = new vscode.WorkspaceEdit();
-            for (const editToApply of editsToApply) {
-                edit.replace(change.uri, editToApply.range, editToApply.newText);
-            }
-            await vscode.workspace.applyEdit(edit);
+            const edits = await this.calculateEditsForDocument(document, change);
+            await this.applyEdits(change.uri, edits);
         }
+    }
+
+    /**
+     * Calculates the necessary edits for a document based on a single import change
+     * @param document - The document to calculate edits for
+     * @param change - The import change to apply
+     * @returns Array of edits to be applied
+     */
+    private async calculateEditsForDocument(
+        document: vscode.TextDocument,
+        change: ImportChange
+    ): Promise<ImportEdit[]> {
+        const sourceFile = ts.createSourceFile(
+            document.fileName,
+            document.getText(),
+            ts.ScriptTarget.Latest,
+            true
+        );
+
+        const editsToApply: ImportEdit[] = [];
+        let hasExistingImport = false;
+        let lastImportPos = 0;
+
+        ts.forEachChild(sourceFile, node => {
+            if (!ts.isImportDeclaration(node)) return;
+
+            lastImportPos = node.getEnd();
+            const importPath = (node.moduleSpecifier as ts.StringLiteral).text;
+            
+            if (importPath === change.oldImportPath) {
+                this.handleOldImportPath(node, document, change, editsToApply);
+            } else if (importPath === change.newImportPath) {
+                hasExistingImport = true;
+                this.handleNewImportPath(node, document, change, editsToApply);
+            }
+        });
+
+        if (!hasExistingImport) {
+            this.addNewImport(lastImportPos, document, change, editsToApply);
+        }
+
+        // Sort edits from last to first to avoid position shifting
+        return editsToApply.sort((a, b) => b.range.start.line - a.range.start.line);
+    }
+
+    /**
+     * Handles modifications to the old import path, either removing the type or updating remaining types
+     * @param node - The import declaration node
+     * @param document - The document being modified
+     * @param change - The import change to apply
+     * @param edits - Array of edits to append to
+     */
+    private handleOldImportPath(
+        node: ts.ImportDeclaration,
+        document: vscode.TextDocument,
+        change: ImportChange,
+        edits: ImportEdit[]
+    ): void {
+        const importClause = node.importClause;
+        if (!importClause?.namedBindings || !ts.isNamedImports(importClause.namedBindings)) return;
+
+        const elements = importClause.namedBindings.elements;
+        if (elements.length === 1 && elements[0].name.text === change.typeName) {
+            // Remove the entire import if it only contains our type
+            edits.push(this.createEdit(node.getStart(), node.getEnd(), '', document));
+        } else if (elements.some(el => el.name.text === change.typeName)) {
+            // Remove only the specific type
+            const remainingTypes = elements
+                .filter(el => el.name.text !== change.typeName)
+                .map(el => el.name.text)
+                .join(', ');
+            
+            const typeKeyword = (importClause.isTypeOnly || change.isTypeOnly) ? 'type ' : '';
+            const newImport = `import ${typeKeyword}{ ${remainingTypes} } from "${(node.moduleSpecifier as ts.StringLiteral).text}";`;
+            edits.push(this.createEdit(node.getStart(), node.getEnd(), newImport, document));
+        }
+    }
+
+    /**
+     * Handles modifications to the new import path, merging the type into existing imports
+     * @param node - The import declaration node
+     * @param document - The document being modified
+     * @param change - The import change to apply
+     * @param edits - Array of edits to append to
+     */
+    private handleNewImportPath(
+        node: ts.ImportDeclaration,
+        document: vscode.TextDocument,
+        change: ImportChange,
+        edits: ImportEdit[]
+    ): void {
+        const importClause = node.importClause;
+        if (!importClause?.namedBindings || !ts.isNamedImports(importClause.namedBindings)) return;
+
+        const elements = importClause.namedBindings.elements;
+        if (elements.some(el => el.name.text === change.typeName)) return;
+
+        const existingTypes = elements.map(el => el.name.text);
+        existingTypes.push(change.typeName);
+        const sortedTypes = existingTypes.sort().join(', ');
+
+        // If either the existing import or the new import is type-only, 
+        // the merged import should be type-only to maintain type safety
+        const shouldBeTypeOnly = importClause.isTypeOnly || change.isTypeOnly;
+        const typeKeyword = shouldBeTypeOnly ? 'type ' : '';
+        const newImport = `import ${typeKeyword}{ ${sortedTypes} } from "${(node.moduleSpecifier as ts.StringLiteral).text}";`;
+        
+        const startPos = node.getStart();
+        const endPos = node.getEnd();
+        edits.push(this.createEdit(startPos, endPos, newImport, document));
+    }
+
+    /**
+     * Creates a new import statement when no existing import exists
+     * @param lastImportPos - Position of the last import in the file
+     * @param document - The document being modified
+     * @param change - The import change to apply
+     * @param edits - Array of edits to append to
+     */
+    private addNewImport(
+        lastImportPos: number,
+        document: vscode.TextDocument,
+        change: ImportChange,
+        edits: ImportEdit[]
+    ): void {
+        debugger
+        const importStatement = change.isTypeOnly
+            ? `import type { ${change.typeName} } from "${change.newImportPath}";\n`
+            : `import { ${change.typeName} } from "${change.newImportPath}";\n`;
+
+        const pos = document.positionAt(lastImportPos).line + 1;
+        edits.push({
+            range: new vscode.Range(pos, 0, pos, 0),
+            newText: importStatement
+        });
+    }
+
+    /**
+     * Creates an edit object with the given range and new text
+     * @param start - Start position of the edit
+     * @param end - End position of the edit
+     * @param newText - New text to insert
+     * @param document - The document being modified
+     * @returns An edit object
+     */
+    private createEdit(
+        start: number,
+        end: number,
+        newText: string,
+        document: vscode.TextDocument
+    ): ImportEdit {
+        return {
+            range: new vscode.Range(
+                document.positionAt(start),
+                document.positionAt(end)
+            ),
+            newText
+        };
+    }
+
+    /**
+     * Applies a set of edits to a document
+     * @param uri - The URI of the document to modify
+     * @param edits - The edits to apply
+     */
+    private async applyEdits(uri: vscode.Uri, edits: ImportEdit[]): Promise<void> {
+        const edit = new vscode.WorkspaceEdit();
+        for (const editToApply of edits) {
+            edit.replace(uri, editToApply.range, editToApply.newText);
+        }
+        await vscode.workspace.applyEdit(edit);
     }
 }
