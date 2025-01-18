@@ -1,0 +1,3 @@
+When chaning functionality always update the test in the ./src/__tests__ folder
+Report what tests need to be updated when changing functionality
+Read the TESTING.md file for more information

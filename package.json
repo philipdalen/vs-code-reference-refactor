@@ -1,0 +1,114 @@
+{
+  "name": "typescript-type-mover",
+  "displayName": "TypeScript Type Mover",
+  "description": "Move TypeScript types between files with automated import updating",
+  "version": "0.1.1",
+  "publisher": "vs-code-reference-refactor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/philipdalen/vs-code-reference-refactor.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "typescript",
+    "refactoring",
+    "types",
+    "imports",
+    "vue"
+  ],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:vue"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "typeMover.moveType",
+        "title": "Move Type to File",
+        "category": "TypeScript"
+      },
+      {
+        "command": "typeMover.previewReferences",
+        "title": "Preview Type References",
+        "category": "TypeScript"
+      }
+    ],
+    "configuration": {
+      "title": "TypeScript Type Mover",
+      "properties": {
+        "typeRefactor.tsconfig": {
+          "type": "string",
+          "default": "./tsconfig.json",
+          "description": "Path to your tsconfig.json file, relative to workspace root. If not specified, the extension will look for tsconfig.json in the workspace root.",
+          "scope": "resource"
+        },
+        "typeMover.importStyle": {
+          "type": "string",
+          "enum": [
+            "regular",
+            "type"
+          ],
+          "default": "regular",
+          "description": "Whether to use 'import' or 'import type'"
+        },
+        "typeMover.ignoredFolders": {
+          "type": "array",
+          "default": [
+            "node_modules",
+            "dist"
+          ],
+          "description": "Folders to ignore when updating imports"
+        },
+        "typeMover.pathAliases": {
+          "type": "object",
+          "default": {},
+          "description": "Additional path aliases not in tsconfig.json"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorLangId =~ /^typescript|typescriptreact|vue/",
+          "command": "typeMover.moveType",
+          "group": "1_modification"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "vite build",
+    "watch": "vite build --watch",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test:run": "vitest run",
+    "package": "npm run test:run && vite build && npx vsce package",
+    "windsurf:install": "npm run package && windsurf --install-extension typescript-type-mover-0.1.1.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "@types/vscode": "^1.96.0",
+    "@typescript-eslint/eslint-plugin": "^8.20.0",
+    "@typescript-eslint/parser": "^8.20.0",
+    "@vitest/ui": "^3.0.2",
+    "@vscode/vsce": "^3.2.1",
+    "eslint": "^9.18.0",
+    "path-browserify": "^1.0.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.2"
+  },
+  "dependencies": {
+    "typescript": "^5.7.3"
+  },
+  "author": "",
+  "license": "MIT"
+}
