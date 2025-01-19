@@ -80,6 +80,20 @@ export class ImportManager {
             typeContent: typeInfo.node.getText()
         };
 
+        // Add import to source file for the moved type
+        const sourceRefPath = sourceUri.fsPath;
+        const destPath = destinationUri.fsPath;
+        const aliasPath = this.pathResolver.tryMatchPathAlias(destPath);
+        const newImportPath = aliasPath || this.pathResolver.resolveImportPath(sourceRefPath, destPath);
+
+        changes.importChanges.push({
+            uri: sourceUri,
+            oldImportPath: '',  // No old import path since we're adding a new one
+            newImportPath,
+            typeName: typeInfo.name,
+            isTypeOnly: true  // Use type-only import for better type safety
+        });
+
         // Calculate relative paths for each reference
         for (const ref of references) {
             const refDocument = await vscode.workspace.openTextDocument(ref.uri);

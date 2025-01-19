@@ -89,7 +89,7 @@ describe('ImportManager', () => {
         vi.mocked(ts.isNamedImports).mockReturnValue(true);
     });
 
-    describe.only('updateImports', () => {
+    describe('updateImports', () => {
         const testCases = [
             {
                 name: 'should merge types into existing import with same path',
