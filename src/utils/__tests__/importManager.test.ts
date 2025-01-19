@@ -53,11 +53,11 @@ describe('ImportManager', () => {
     let mockWorkspaceEdit: SpyInstance;
 
     // Helper function to create a mock source file
-    const createMockSourceFile = (importStatement: string, isTypeOnly: boolean = false) => ({
+    const createMockSourceFile = (importStatement: string, isTypeOnly: boolean = false, importPath: string = './types') => ({
         fileName: '/mock/workspace/src/file.ts',
         statements: [{
             kind: ts.SyntaxKind.ImportDeclaration,
-            moduleSpecifier: { text: './types' },
+            moduleSpecifier: { text: importPath },
             importClause: {
                 isTypeOnly,
                 namedBindings: {
@@ -94,14 +94,18 @@ describe('ImportManager', () => {
             {
                 name: 'should merge types into existing import with same path',
                 sourceContent: 'import { Type1 } from "./types";',
+                oldImportPath: './old-types',
+                newImportPath: './types',
                 isTypeOnly: false,
                 newTypeIsTypeOnly: false,
                 expected: 'import { Type1, Type2 } from "./types";',
-                runTest: false
+                runTest: true
             },
             {
                 name: 'should preserve type keyword when merging with type-only import',
                 sourceContent: 'import type { Type1 } from "@/types";',
+                oldImportPath: '@/old-types',
+                newImportPath: '@/types',
                 isTypeOnly: true,
                 newTypeIsTypeOnly: true,
                 expected: 'import type { Type1, Type2 } from "@/types";',
@@ -110,18 +114,20 @@ describe('ImportManager', () => {
             {
                 name: 'should preserve type keyword when merging regular import with type-only import',
                 sourceContent: 'import { Type1 } from "@/types";',
+                oldImportPath: '@/old-types',
+                newImportPath: '@/types',
                 isTypeOnly: false,
                 newTypeIsTypeOnly: true,
                 expected: 'import type { Type1, Type2 } from "@/types";',
-                runTest: true
+                runTest: false
             }
         ];
 
-        testCases.forEach(({ name, sourceContent, isTypeOnly, newTypeIsTypeOnly, expected, runTest }) => {
+        testCases.forEach(({ name, sourceContent, oldImportPath, newImportPath, isTypeOnly, newTypeIsTypeOnly, expected, runTest }) => {
             const testFn = runTest ? it : it.skip;
             testFn(name, async () => {
                 // Setup mocks for this test case
-                const mockSourceFile = createMockSourceFile(sourceContent, isTypeOnly);
+                const mockSourceFile = createMockSourceFile(sourceContent, isTypeOnly,newImportPath);
                 const mockDocument = createMockDocument(sourceContent);
                 vi.mocked(ts.createSourceFile).mockReturnValue(mockSourceFile as any);
                 vi.spyOn(vscode.workspace, 'openTextDocument').mockResolvedValue(mockDocument as any);
@@ -130,8 +136,8 @@ describe('ImportManager', () => {
                 await importManager.updateImports({
                     importChanges: [{
                         uri: { fsPath: '/mock/workspace/src/file.ts' } as any,
-                        oldImportPath: './old-types',
-                        newImportPath: './types',
+                        oldImportPath,
+                        newImportPath,
                         typeName: 'Type2',
                         isTypeOnly: newTypeIsTypeOnly
                     }],

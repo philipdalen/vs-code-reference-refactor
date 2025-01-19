@@ -91,30 +91,8 @@ export class ImportManager {
                 true
             );
 
-            // Find existing import style for this reference
-            let oldImportPath = '';
-            let isTypeOnly = false;
-
-            ts.forEachChild(refSourceFile, node => {
-                if (ts.isImportDeclaration(node)) {
-                    const importPath = (node.moduleSpecifier as ts.StringLiteral).text;
-                    const importClause = node.importClause;
-                    if (importClause) {
-                        isTypeOnly = importClause.isTypeOnly;
-                        if (importClause.namedBindings) {
-                            const namedBindings = importClause.namedBindings;
-                            if (ts.isNamedImports(namedBindings)) {
-                                const hasType = namedBindings.elements.some(
-                                    element => element.name.text === typeInfo.name
-                                );
-                                if (hasType) {
-                                    oldImportPath = importPath;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
+            const { path: oldImportPath, isTypeOnly } = this.findExistingImportPath(refSourceFile, typeInfo);
+            if (!oldImportPath) continue;
 
             const refPath = ref.uri.fsPath;
             const destPath = destinationUri.fsPath;
@@ -143,6 +121,54 @@ export class ImportManager {
         }
 
         return changes;
+    }
+
+    /**
+     * Finds the existing import path and type-only status for a type in a source file.
+     * 
+     * This method searches through all import declarations in a source file to find where
+     * a type is currently imported from. Used to determine the old import path when moving a type.
+     * 
+     * @example
+     * // For a file containing:
+     * // import { Type1 } from "./types";
+     * // findExistingImportPath(sourceFile, { name: "Type1" }) returns { path: "./types", isTypeOnly: false }
+     * 
+     * // For a file containing:
+     * // import type { Type2 } from "@/models";
+     * // findExistingImportPath(sourceFile, { name: "Type2" }) returns { path: "@/models", isTypeOnly: true }
+     * 
+     * @param refSourceFile - The TypeScript source file to search in
+     * @param typeInfo - Object containing the type name to search for
+     * @param typeInfo.name - The name of the type to find
+     * @param typeInfo.node - The AST node of the type (unused in this method)
+     * @returns Object containing the current import path and whether it's a type-only import
+     *          Returns { path: '', isTypeOnly: false } if the type is not found
+     */
+    private findExistingImportPath(refSourceFile: ts.SourceFile, typeInfo: { name: string; node: ts.Node }): { path: string; isTypeOnly: boolean } {
+        let result = { path: '', isTypeOnly: false };
+
+        ts.forEachChild(refSourceFile, node => {
+            if (!ts.isImportDeclaration(node)) return;
+
+            const namedImports = this.getNamedImports(node);
+            if (!namedImports) return;
+
+            const hasType = namedImports.elements.some(el => el.name.text === typeInfo.name);
+            if (!hasType) return;
+
+            result = {
+                path: (node.moduleSpecifier as ts.StringLiteral).text,
+                isTypeOnly: node.importClause?.isTypeOnly || false
+            };
+        });
+
+        return result;
+    }
+
+    private getNamedImports(node: ts.ImportDeclaration): ts.NamedImports | null {
+        const namedBindings = node.importClause?.namedBindings;
+        return namedBindings && ts.isNamedImports(namedBindings) ? namedBindings : null;
     }
 
     /**
