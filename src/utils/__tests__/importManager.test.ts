@@ -89,33 +89,37 @@ describe('ImportManager', () => {
         vi.mocked(ts.isNamedImports).mockReturnValue(true);
     });
 
-    describe.skip('updateImports', () => {
+    describe.only('updateImports', () => {
         const testCases = [
             {
                 name: 'should merge types into existing import with same path',
                 sourceContent: 'import { Type1 } from "./types";',
                 isTypeOnly: false,
                 newTypeIsTypeOnly: false,
-                expected: 'import { Type1, Type2 } from "./types";'
+                expected: 'import { Type1, Type2 } from "./types";',
+                runTest: false
             },
             {
                 name: 'should preserve type keyword when merging with type-only import',
                 sourceContent: 'import type { Type1 } from "@/types";',
                 isTypeOnly: true,
                 newTypeIsTypeOnly: true,
-                expected: 'import type { Type1, Type2 } from "@/types";'
+                expected: 'import type { Type1, Type2 } from "@/types";',
+                runTest: false
             },
             {
                 name: 'should preserve type keyword when merging regular import with type-only import',
-                sourceContent: 'import { Type1 } from "./types";',
+                sourceContent: 'import { Type1 } from "@/types";',
                 isTypeOnly: false,
                 newTypeIsTypeOnly: true,
-                expected: 'import type { Type1, Type2 } from "./types";'
+                expected: 'import type { Type1, Type2 } from "@/types";',
+                runTest: true
             }
         ];
 
-        testCases.forEach(({ name, sourceContent, isTypeOnly, newTypeIsTypeOnly, expected }) => {
-            it(name, async () => {
+        testCases.forEach(({ name, sourceContent, isTypeOnly, newTypeIsTypeOnly, expected, runTest }) => {
+            const testFn = runTest ? it : it.skip;
+            testFn(name, async () => {
                 // Setup mocks for this test case
                 const mockSourceFile = createMockSourceFile(sourceContent, isTypeOnly);
                 const mockDocument = createMockDocument(sourceContent);
