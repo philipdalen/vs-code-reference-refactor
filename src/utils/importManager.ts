@@ -32,6 +32,36 @@ export class ImportManager {
         this.pathResolver = new PathResolver(workspaceRoot);
     }
 
+    /**
+     * Calculates the necessary import changes for moving a type to a new location
+     * @param typeInfo - Information about the type being moved
+     * @param sourceUri - The URI of the source file containing the type
+     * @param destinationUri - The URI of the destination file where the type will be moved
+     * @param references - Array of locations where the type is referenced
+     * @returns Promise resolving to Changes object containing import changes and type content
+     * @example
+     * // Moving an interface from types.ts to models.ts
+     * const changes = await importManager.calculateChanges(
+     *   { name: 'UserType', node: typeNode },
+     *   vscode.Uri.file('/src/types.ts'),
+     *   vscode.Uri.file('/src/models.ts'),
+     *   [
+     *     // Reference in user.ts
+     *     { uri: vscode.Uri.file('/src/user.ts'), ... }
+     *   ]
+     * );
+     * // Result:
+     * // {
+     * //   importChanges: [{
+     * //     uri: '/src/user.ts',
+     * //     oldImportPath: './types',
+     * //     newImportPath: './models',
+     * //     typeName: 'UserType',
+     * //     isTypeOnly: false
+     * //   }],
+     * //   typeContent: 'interface UserType { ... }'
+     * // }
+     */
     public async calculateChanges(
         typeInfo: { name: string; node: ts.Node },
         sourceUri: vscode.Uri,
@@ -118,6 +148,21 @@ export class ImportManager {
     /**
      * Updates import statements in TypeScript files based on provided changes
      * @param changes - The changes to apply to imports
+     * @example
+     * // Update imports after moving a type
+     * await importManager.updateImports({
+     *   importChanges: [{
+     *     uri: vscode.Uri.file('/src/user.ts'),
+     *     oldImportPath: './types',
+     *     newImportPath: './models',
+     *     typeName: 'UserType',
+     *     isTypeOnly: false
+     *   }],
+     *   typeContent: 'interface UserType { id: string; name: string; }'
+     * });
+     * // This will update imports in user.ts:
+     * // Before: import { UserType } from './types';
+     * // After:  import { UserType } from './models';
      */
     public async updateImports(changes: Changes): Promise<void> {
         for (const change of changes.importChanges) {
@@ -132,6 +177,28 @@ export class ImportManager {
      * @param document - The document to calculate edits for
      * @param change - The import change to apply
      * @returns Array of edits to be applied
+     * @example
+     * // Example 1: Merging a type into an existing import
+     * const change = {
+     *   uri: documentUri,
+     *   oldImportPath: './old-types',
+     *   newImportPath: './types',
+     *   typeName: 'Type2',
+     *   isTypeOnly: false
+     * };
+     * // Input:  import { Type1 } from "./types";
+     * // Output: import { Type1, Type2 } from "./types";
+     * 
+     * // Example 2: Merging with type-only import
+     * const change = {
+     *   uri: documentUri,
+     *   oldImportPath: './old-types',
+     *   newImportPath: '@/types',
+     *   typeName: 'Type2',
+     *   isTypeOnly: true
+     * };
+     * // Input:  import type { Type1 } from "@/types";
+     * // Output: import type { Type1, Type2 } from "@/types";
      */
     private async calculateEditsForDocument(
         document: vscode.TextDocument,
@@ -176,6 +243,13 @@ export class ImportManager {
      * @param document - The document being modified
      * @param change - The import change to apply
      * @param edits - Array of edits to append to
+     * @example
+     * // When moving 'UserType' from './types' to './models'
+     * // Input:  import { UserType, OtherType } from './types';
+     * // Output: import { OtherType } from './types';
+     * // Or if it's the only type:
+     * // Input:  import { UserType } from './types';
+     * // Output: [Import statement removed]
      */
     private handleOldImportPath(
         node: ts.ImportDeclaration,
@@ -209,6 +283,13 @@ export class ImportManager {
      * @param document - The document being modified
      * @param change - The import change to apply
      * @param edits - Array of edits to append to
+     * @example
+     * // When moving 'UserType' to a file with existing imports
+     * // Input:  import { ExistingType } from './models';
+     * // Output: import { ExistingType, UserType } from './models';
+     * // Or with type-only imports:
+     * // Input:  import type { ExistingType } from './models';
+     * // Output: import type { ExistingType, UserType } from './models';
      */
     private handleNewImportPath(
         node: ts.ImportDeclaration,
@@ -243,6 +324,12 @@ export class ImportManager {
      * @param document - The document being modified
      * @param change - The import change to apply
      * @param edits - Array of edits to append to
+     * @example
+     * // When adding a new type import to a file
+     * // Input:  [No existing import]
+     * // Output: import { UserType } from './models';
+     * // Or with type-only:
+     * // Output: import type { UserType } from './models';
      */
     private addNewImport(
         lastImportPos: number,
@@ -250,7 +337,6 @@ export class ImportManager {
         change: ImportChange,
         edits: ImportEdit[]
     ): void {
-        debugger
         const importStatement = change.isTypeOnly
             ? `import type { ${change.typeName} } from "${change.newImportPath}";\n`
             : `import { ${change.typeName} } from "${change.newImportPath}";\n`;
@@ -269,6 +355,17 @@ export class ImportManager {
      * @param newText - New text to insert
      * @param document - The document being modified
      * @returns An edit object
+     * @example
+     * // Creating an edit to replace text
+     * const edit = createEdit(0, 10, 'new text', document);
+     * // Result:
+     * // {
+     * //   range: new vscode.Range(
+     * //     document.positionAt(0),
+     * //     document.positionAt(10)
+     * //   ),
+     * //   newText: 'new text'
+     * // }
      */
     private createEdit(
         start: number,
@@ -289,6 +386,18 @@ export class ImportManager {
      * Applies a set of edits to a document
      * @param uri - The URI of the document to modify
      * @param edits - The edits to apply
+     * @example
+     * // Applying multiple edits to a document
+     * await applyEdits(documentUri, [
+     *   {
+     *     range: new vscode.Range(0, 0, 0, 10),
+     *     newText: 'import { Type1 } from "./types";'
+     *   },
+     *   {
+     *     range: new vscode.Range(1, 0, 1, 15),
+     *     newText: 'import { Type2 } from "./models";'
+     *   }
+     * ]);
      */
     private async applyEdits(uri: vscode.Uri, edits: ImportEdit[]): Promise<void> {
         const edit = new vscode.WorkspaceEdit();

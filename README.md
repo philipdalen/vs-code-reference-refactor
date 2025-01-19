@@ -35,7 +35,7 @@ You can also:
 
 ## Extension Settings
 
-This extension contributes the following settings:
+If you are using Windsurf or Cursor, these settings must be configured in your Windsurf/Cursor settings, not in VS Code settings:
 
 * `typeMover.importStyle`: Choose between 'regular' imports or 'type' imports
 * `typeMover.ignoredFolders`: Array of folders to ignore when updating imports
